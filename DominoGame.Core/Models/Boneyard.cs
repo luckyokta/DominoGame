@@ -8,5 +8,10 @@ namespace DominoGame.Core.Models
         public List<Tile> Tiles {get;} = new();
         public bool IsEmpty => Tiles.Count == 0;
         public int RemainingCount => Tiles.Count;
+
+        public Boneyard(List<Tile> tiles)
+        {
+            Tiles = tiles;
+        }
     }
 }

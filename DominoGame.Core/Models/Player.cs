@@ -4,8 +4,8 @@ namespace DominoGame.Core.Models
 {
     public class Player : IPlayer
     {
-        public int Id {get;}
-        public string Name {get; private set;}
+        public int Id {get; internal set;}
+        public string Name {get;}
 
         public Player(string name)
         {
