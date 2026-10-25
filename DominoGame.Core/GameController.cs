@@ -21,14 +21,14 @@ namespace DominoGame.Core
         public int CurrentRound {get; private set;}
         public GameStatus Status {get; private set;} = GameStatus.NotStarted;
         public RoundStatus RoundStatus {get; private set;} = RoundStatus.NotStarted;
-        public List<IPlayer> RoundWinners {get; set;} = new List<IPlayer>();
+        public IPlayer? RoundWinner {get; private set;}
         public IPlayer? MatchWinner {get; private set;}
 
         public event Action<List<IPlayer>>? GameStarted;
         public event Action<IPlayer, Tile, BoardEnd>? TilePlayed;
         public event Action<IPlayer>? PlayerPassed;
         public event Action<IPlayer, int>? PlayerScored;
-        public event Action<List<IPlayer>>? RoundOver;
+        public event Action<IPlayer?>? RoundOver;
         public event Action<IPlayer>? MatchOver;
         public event Action<IPlayer, Tile>? TileDrawn;
 
@@ -50,13 +50,13 @@ namespace DominoGame.Core
             Players.Clear();
             PlayerHands.Clear();
             PlayerScores.Clear();
-            RoundWinners.Clear();
 
             _currentPlayerIndex = 0;
 
             CanDraw = false;
             CanPass = false;
             
+            RoundWinner = null;
             MatchWinner = null;
 
 
@@ -102,19 +102,8 @@ namespace DominoGame.Core
             Status = GameStatus.InProgress;
             RoundStatus = RoundStatus.InProgress;
 
-            // Set available actions for the first player
-            bool hasMoves = HasValidMoves(firstPlayer);
-
-            CanDraw = !hasMoves && !Boneyard.IsEmpty;
-            CanPass = !hasMoves && Boneyard.IsEmpty;
-
             // Notify subscribers
             GameStarted?.Invoke(Players);
-        }
-
-        public void StartNewGame(List<IPlayer> playerNames)
-        {
-            // StartNewGame(playerNames, 100);
         }
 
         private void ShuffleBoneyard(IBoneyard boneyard)
@@ -130,6 +119,11 @@ namespace DominoGame.Core
 
         private Tile? PlayerGetHighestDouble(IPlayer player)
         {
+            if (!PlayerHands.ContainsKey(player))
+            {
+                return null;
+            }
+            
             Tile? highestDouble = null;
 
             foreach(Tile tile in PlayerHands[player])
@@ -269,12 +263,10 @@ namespace DominoGame.Core
 
         public bool IsValidMove(IPlayer player, Tile tile, BoardEnd end)
         {
-            if(player == null || !PlayerHands.ContainsKey(player))
-            {
-                return false;
-            }
-
-            if(!PlayerHasTile(player, tile))
+            if(
+                player == null ||
+                !PlayerHands.ContainsKey(player) ||
+                !PlayerHasTile(player, tile))
             {
                 return false;
             }
@@ -409,20 +401,11 @@ namespace DominoGame.Core
 
         public void PlayTurn(IPlayer player, Tile tile, BoardEnd end)
         {
-            // Check whether the game is in progress
-            if(Status != GameStatus.InProgress || RoundStatus != RoundStatus.InProgress)
-            {
-                return;
-            }
-
-            // Check whether it is this player's turn
-            if(!Equals(player, CurrentPlayer))
-            {
-                return;
-            }
-
-            // Check whether the move is valid
-            if(!IsValidMove(player, tile, end))
+            if(
+                Status != GameStatus.InProgress ||
+                RoundStatus != RoundStatus.InProgress ||
+                !Equals(player, CurrentPlayer) ||
+                !IsValidMove(player, tile, end))
             {
                 return;
             }
@@ -436,23 +419,25 @@ namespace DominoGame.Core
             // Notify subscriber that the tile was played
             TilePlayed?.Invoke(player, tile, end);
 
-            // Determine round winner
-            List<IPlayer> winners = DetermineWinner();
+            // Check whether the round has ended
+            bool playerEmptiedHand = PlayerHands[player].Count == 0;
 
-            if(winners.Count > 0)
+            bool blockedGame = Boneyard.IsEmpty && !Players.Any(player => HasValidMoves(player));
+
+            if(playerEmptiedHand || blockedGame)
             {
-                RoundWinners.Clear();
-                RoundWinners.AddRange(winners);
+                // Determine round winner
+                IPlayer? winner = DetermineWinner();
 
-                // Get all players who did not win
-                List<IPlayer> losers = Players.Where(p => !RoundWinners.Contains(p)).ToList();
-                
-                // Calculate the round score
-                int roundScore = CalculateRoundScore(losers);
+                RoundWinner = winner;
 
-                // Add points to each winner
-                foreach(IPlayer winner in RoundWinners)
+                // Calculate and award points only if there is a winner
+                if(winner != null)
                 {
+                    List<IPlayer> losers = Players.Where(player => !Equals(player, winner)).ToList();
+
+                    int roundScore = CalculateRoundScore(losers);
+
                     PlayerScores[winner] += roundScore;
 
                     // Notify subscribers about the score
@@ -462,21 +447,18 @@ namespace DominoGame.Core
                 // Mark the round as complete
                 RoundStatus = RoundStatus.Completed;
 
-                // Check whether the match has winner
+                // Notify subscribers that the round is over
+                RoundOver?.Invoke(winner);
+
+                // Check whether the match has a winner
                 IPlayer? matchWinner = DetermineMatchWinner();
 
                 if(matchWinner != null)
                 {
                     MatchWinner = matchWinner;
                     Status = GameStatus.Completed;
-                }
 
-                // Notify subscribers that the round is over
-                RoundOver?.Invoke(RoundWinners);
-
-                // Notify subscriber if the match is over
-                if(matchWinner != null)
-                {                 
+                    // Notify subscribers that the match is over
                     MatchOver?.Invoke(matchWinner);
                 }
 
@@ -486,7 +468,7 @@ namespace DominoGame.Core
                 return;
             }
 
-            // No winner yet, advance to the next player
+            // No round winner yet, advance to the next player
             AdvanceMove();
 
             // Determine available actions for the next player
@@ -546,41 +528,43 @@ namespace DominoGame.Core
 
             PlayerPassed?.Invoke(player);
 
-            // Check whether the round has ended
-            List<IPlayer> winners = DetermineWinner();
+            // Check whether the game is blocked
+            bool blockedGame = Boneyard.IsEmpty && !Players.Any(player => HasValidMoves(player));
 
-            if(winners.Count > 0)
+            if (blockedGame)
             {
-                RoundWinners.Clear();
-                RoundWinners.AddRange(winners);
+                IPlayer? winner = DetermineWinner();
+                
+                RoundWinner = winner;
 
-                List<IPlayer> losers = Players.Where(p => !RoundWinners.Contains(p)).ToList();
-
-                int roundScore = CalculateRoundScore(losers);
-
-                foreach(IPlayer winner in RoundWinners)
+                // Calculate and award points only if there is a winner
+                if(winner != null)
                 {
+                    List<IPlayer> losers = Players.Where(player => !Equals(player, winner)).ToList();
+
+                    int roundScore = CalculateRoundScore(losers);
+
                     PlayerScores[winner] += roundScore;
+
+                    // Notify subscribers about the score
                     PlayerScored?.Invoke(winner, roundScore);
                 }
 
-                // Mark the round is complete
+                // Mark the round as complete
                 RoundStatus = RoundStatus.Completed;
 
-                // Check whether the match has winner
+                // Notify subscriber that the round is over
+                RoundOver?.Invoke(winner);
+
+                // Check whether the match has a winner
                 IPlayer? matchWinner = DetermineMatchWinner();
 
                 if(matchWinner != null)
                 {
                     MatchWinner = matchWinner;
                     Status = GameStatus.Completed;
-                }
 
-                // Notify subscribers
-                RoundOver?.Invoke(RoundWinners);
-
-                if(matchWinner != null)
-                {
+                    // Notify subscribers that the match is over
                     MatchOver?.Invoke(matchWinner);
                 }
 
@@ -590,6 +574,7 @@ namespace DominoGame.Core
                 return;
             }
 
+            // No round winner yet, advance to the next player
             AdvanceMove();
 
             // Set the available actions for the next player
@@ -645,17 +630,12 @@ namespace DominoGame.Core
 
         public Tile? DrawTile(IPlayer player)
         {
-            if(Status != GameStatus.InProgress || RoundStatus != RoundStatus.InProgress)
-            {
-                return null;
-            }
-
-            if(!Equals(CurrentPlayer, player))
-            {
-                return null;
-            }
-
-            if (!CanDraw || Boneyard.IsEmpty)
+            if(
+                Status != GameStatus.InProgress ||
+                RoundStatus != RoundStatus.InProgress ||
+                !Equals(CurrentPlayer, player) ||
+                !CanDraw ||
+                Boneyard.IsEmpty)
             {
                 return null;
             }
@@ -715,7 +695,7 @@ namespace DominoGame.Core
             Board = new DominoBoard();
 
             // Reset round state
-            RoundWinners.Clear();
+            RoundWinner = null;
             CanDraw = false;
             CanPass = false;
 
@@ -750,32 +730,23 @@ namespace DominoGame.Core
             // Update round state
             CurrentRound++;
             RoundStatus = RoundStatus.InProgress;
-
-            // Set available actions for the first player
-            bool hasMoves = HasValidMoves(firstPlayer);
-
-            CanDraw = !hasMoves && !Boneyard.IsEmpty;
-            CanPass = !hasMoves && Boneyard.IsEmpty;
         }
 
-        public List<IPlayer> DetermineWinner()
+        public IPlayer? DetermineWinner()
         {
-            List<IPlayer> winners = new List<IPlayer>();
-
             // Check whether a player had emptied their hand
             foreach(IPlayer player in Players)
             {
                 if(PlayerHands.ContainsKey(player) && PlayerHands[player].Count == 0)
                 {
-                    winners.Add(player);
-                    return winners;
+                    return player;
                 }
             }
 
             // If the boneyard still has tile, the round cannot end due to blocked game
             if (!Boneyard.IsEmpty)
             {
-                return winners;
+                return null;
             }
 
             // Check whether any player can still play a tile
@@ -783,7 +754,7 @@ namespace DominoGame.Core
             {
                 if (HasValidMoves(player))
                 {
-                    return winners;
+                    return null;
                 }
             }
 
@@ -808,25 +779,24 @@ namespace DominoGame.Core
 
             // Find the highest comparison score
             int highestScore = int.MinValue;
+            IPlayer? winner = null;
+            bool isTie = false;
 
             foreach(KeyValuePair<IPlayer, int> entry in comparisonScores)
             {
                 if(entry.Value > highestScore)
                 {
                     highestScore = entry.Value;
+                    winner = entry.Key;
+                    isTie = false;
                 }
-            }
-
-            // Include every player tied for the highest score
-            foreach(KeyValuePair<IPlayer, int> entry in comparisonScores)
-            {
-                if(entry.Value == highestScore)
+                else if(entry.Value == highestScore)
                 {
-                    winners.Add(entry.Key);
+                    isTie = true;
                 }
             }
 
-            return winners;
+            return isTie ? null : winner;
         }
 
         public IPlayer? DetermineMatchWinner()
