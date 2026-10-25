@@ -1,264 +1,375 @@
-﻿using DominoGame.Core;
+﻿using Spectre.Console;
+using DominoGame.Core;
 using DominoGame.Core.Enums;
 using DominoGame.Core.Interfaces;
 using DominoGame.Core.Models;
 
-Console.WriteLine("=== DOMINO GAME ===");
-Console.WriteLine();
+namespace DominoGame.ConsoleApp;
 
-Console.Write("Enter the number of players (2-4): ");
-string? playerCountInput = Console.ReadLine();
-
-if(!int.TryParse(playerCountInput, out int playerCount) || playerCount < 2 || playerCount> 4)
+internal class Program
 {
-    Console.WriteLine("The number of player must be between 2 and 4");
-    return;
-}
+    private static readonly GameController Controller = new();
 
-List<string> playerNames = new List<string>();
-
-for(int i = 0; i < playerCount; i++)
-{
-    Console.Write($"Enter the name of player {i + 1}: ");
-    string? name = Console.ReadLine();
-
-    if (string.IsNullOrWhiteSpace(name))
+    static void Main(string[] args)
     {
-        Console.WriteLine("Player name cannot be empty.");
-        return;
-    }
+        bool exit = false;
 
-    playerNames.Add(name.Trim());
-}
-
-Console.Write("Target Score (default target score is 100): ");
-string? targetScoreInput = Console.ReadLine();
-
-int targetScore = 100;
-
-if (!string.IsNullOrWhiteSpace(targetScoreInput))
-{
-    if(!int.TryParse(targetScoreInput, out targetScore) || targetScore <= 0)
-    {
-        Console.WriteLine("The target score must be above 0");
-        return;
-    }
-}
-
-Console.WriteLine();
-Console.WriteLine("=== GAME CONFIGURATION ===");
-Console.WriteLine($"Number of players: {playerCount}");
-Console.WriteLine($"Players: {string.Join(", ", playerNames)}");
-Console.WriteLine($"Target score: {targetScore}");
-
-Console.WriteLine();
-Console.WriteLine("Starting game...");
-Console.WriteLine();
-
-GameController game = new GameController();
-game.StartNewGame(playerNames, targetScore);
-
-Console.WriteLine("=== GAME STARTED ===");
-Console.WriteLine($"Round: {game.CurrentRound}");
-Console.WriteLine($"Target score: {game.TargetScore}");
-Console.WriteLine($"First player: {game.CurrentPlayer?.Name}");
-
-Console.WriteLine();
-Console.WriteLine("=== PLAYER HANDS ===");
-
-foreach(IPlayer player in game.Players)
-{
-    Console.WriteLine();
-    Console.WriteLine($"{player.Name}'s hand:");
-
-    List<Tile> hand = game.PlayerHands[player];
-
-    for(int i = 0; i < hand.Count; i++)
-    {
-        Console.WriteLine($"[{i}] {hand[i]}");
-    }
-}
-
-Console.WriteLine();
-Console.WriteLine("=== BOARD ===");
-
-if (game.Board.IsEmpty)
-{
-    Console.WriteLine("Board is empty");
-}
-else
-{
-    Console.WriteLine(string.Join(" | ", game.Board.PlayedTiles));
-}
-
-Console.WriteLine();
-Console.WriteLine($"Tiles remaining in Boneyard = {game.Boneyard.RemainingCount}");
-
-while(game.Status == GameStatus.InProgress)
-{
-    IPlayer? currentPlayer = game.CurrentPlayer;
-
-    if(currentPlayer == null)
-    {
-        Console.WriteLine("No current player is available");
-        break;
-    }
-
-    Console.WriteLine();
-    Console.WriteLine($"=== {currentPlayer.Name}'s TURN ===");
-    Console.WriteLine($"Board: {string.Join(" | ", game.Board.PlayedTiles)}");
-    Console.WriteLine();
-
-    List<Tile> hand = game.PlayerHands[currentPlayer];
-
-    Console.WriteLine("Your hand:");
-    for(int i = 0; i < hand.Count; i++)
-    {
-        Console.WriteLine($"[{i}] {hand[i]}");
-    }
-
-    Console.WriteLine();
-    Console.WriteLine("1. Play a tile");
-
-    if (game.CanDraw)
-    {
-        Console.WriteLine("2. Draw a tile");
-    }
-
-    if (game.CanPass)
-    {
-        Console.WriteLine("3. Pass");
-    }
-
-    Console.Write("Choose an action: ");
-    string? choice = Console.ReadLine();
-
-    if(choice == "1")
-    {
-        Console.Write("Enter the index of the tile you wanna play: ");
-        string? tileIndexInput = Console.ReadLine();
-
-        if(!int.TryParse(tileIndexInput, out int tileIndex) || tileIndex < 0 || tileIndex >= hand.Count)
+        while (!exit)
         {
-            Console.WriteLine("Invalid tile index.");
-            continue;
-        }
+            AnsiConsole.Clear();
 
-        Tile selectedTile = hand[tileIndex];
-        
-        BoardEnd end = BoardEnd.Left;
+            AnsiConsole.Write(
+                new FigletText("DOMINO GAME")
+                    .Centered()
+                    .Color(Color.Blue));
 
-        if (!game.Board.IsEmpty)
-        {
-            Console.WriteLine("1. Left end");
-            Console.WriteLine("2. Right end");
-            Console.Write("Choose the board end: ");
+            string choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold yellow]Main Menu[/]")
+                    .AddChoices(
+                        "Start New Game",
+                        "Exit"));
 
-            string? endChoice = Console.ReadLine();
-
-            if(endChoice == "1")
+            switch (choice)
             {
-                end = BoardEnd.Left;
-            }
-            else if(endChoice == "2")
-            {
-                end = BoardEnd.Right;
-            }
-            else
-            {
-                Console.WriteLine("Invalid board end");
-                continue;
+                case "Start New Game":
+                    StartGame();
+                    break;
+
+                case "Exit":
+                    exit = true;
+                    break;
             }
         }
 
-        if(!game.IsValidMove(currentPlayer, selectedTile, end))
-        {
-            Console.WriteLine("That tile cannot be played at the selected end");
-            continue;
-        }
-
-        game.PlayTurn(currentPlayer, tileIndex, end);
-
-        Console.WriteLine($"{currentPlayer.Name} played {selectedTile} on the {end.ToString().ToLower()} end.");
-    }
-    else if(choice == "2")
-    {
-        if (!game.CanDraw)
-        {
-            Console.WriteLine("You cannot draw a tile right now");
-            continue;
-        }
-
-        Tile? drawnTile = game.DrawTile(currentPlayer);
-
-        if(drawnTile == null)
-        {
-            Console.WriteLine("Unable to draw a tile");
-            continue;
-        }
-
-        Console.WriteLine($"{currentPlayer.Name} drew a tile.");
-    }
-    else if(choice == "3")
-    {
-        if (!game.CanPass)
-        {
-            Console.WriteLine("You cannot pass right now");
-            continue;
-        }
-
-        game.PassTurn();
-
-        Console.WriteLine($"{currentPlayer.Name} passed");
-    }
-    else
-    {
-        Console.WriteLine("Invalid action. Please choose an available option.");
+        AnsiConsole.MarkupLine("[grey]Thanks for playing![/]");
     }
 
-    if(game.RoundStatus == RoundStatus.Completed)
+    
+    private static void StartGame()
     {
-        Console.WriteLine();
-        Console.WriteLine("=== ROUND OVER ===");
+        AnsiConsole.Clear();
 
-        foreach(IPlayer winner in game.RoundWinners)
+        AnsiConsole.MarkupLine("[bold blue]NEW GAME[/]");
+        AnsiConsole.WriteLine();
+
+        int playerCount = AnsiConsole.Prompt(
+            new SelectionPrompt<int>()
+                .Title("How many players?")
+                .AddChoices(2, 3, 4));
+
+        List<string> playerNames = new();
+
+        for (int i = 1; i <= playerCount; i++)
         {
-            Console.WriteLine($"{winner.Name} won the round!");
-            Console.WriteLine($"Score: {game.PlayerScores[winner]}");
+            string name = AnsiConsole.Prompt(
+                new TextPrompt<string>($"Enter name for player {i}:")
+                    .Validate(name =>
+                        !string.IsNullOrWhiteSpace(name)
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error(
+                                "[red]Name cannot be empty.[/]")));
+
+            playerNames.Add(name.Trim());
         }
 
-        Console.WriteLine();
-        Console.WriteLine("=== MATCH SCORES ===");
+        int targetScore = AnsiConsole.Prompt(
+            new TextPrompt<int>("Enter the target score:")
+                .DefaultValue(100)
+                .Validate(score =>
+                    score > 0
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error(
+                            "[red]Target score must be greater than zero.[/]")));
 
-        foreach(IPlayer player in game.Players)
+        Controller.StartNewGame(playerNames, targetScore);
+
+        PlayGame();
+    }
+
+    private static void PlayGame()
+    {
+        while (Controller.Status == GameStatus.InProgress)
         {
-            Console.WriteLine($"{player.Name}: {game.PlayerScores[player]} points");
+            PlayRound();
+
+            if (Controller.Status == GameStatus.Completed)
+            {
+                ShowMatchResult();
+                return;
+            }
+
+            if (Controller.RoundStatus == RoundStatus.Completed)
+            {
+                ShowRoundResult();
+
+                AnsiConsole.MarkupLine(
+                    $"[grey]Starting round {Controller.CurrentRound + 1}...[/]");
+
+                AnsiConsole.Prompt(
+                    new TextPrompt<string>(
+                        "Press Enter to continue")
+                        .AllowEmpty());
+
+                Controller.StartNewRound();
+            }
+        }
+    }
+
+    private static void PlayRound()
+    {
+        while (
+            Controller.Status == GameStatus.InProgress &&
+            Controller.RoundStatus == RoundStatus.InProgress)
+        {
+            AnsiConsole.Clear();
+
+            ShowGameState();
+
+            IPlayer? currentPlayer = Controller.CurrentPlayer;
+
+            if (currentPlayer == null)
+            {
+                AnsiConsole.MarkupLine(
+                    "[red]Unable to determine the current player.[/]");
+
+                return;
+            }
+
+            AnsiConsole.MarkupLine(
+                $"[bold yellow]{Markup.Escape(currentPlayer.Name)}'s turn[/]");
+
+            List<Tile> hand = Controller.PlayerHands[currentPlayer];
+
+            ShowPlayerHand(hand);
+
+            List<string> actions = new()
+            {
+                "Play a tile"
+            };
+
+            if (Controller.CanDraw)
+            {
+                actions.Add("Draw a tile");
+            }
+
+            if (Controller.CanPass)
+            {
+                actions.Add("Pass turn");
+            }
+
+            string action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Choose an action:")
+                    .AddChoices(actions));
+
+            switch (action)
+            {
+                case "Play a tile":
+                    PlayTile(currentPlayer, hand);
+                    break;
+
+                case "Draw a tile":
+                    Controller.DrawTile(currentPlayer);
+                    break;
+
+                case "Pass turn":
+                    Controller.PassTurn();
+                    break;
+            }
+        }
+    }
+
+    private static void ShowGameState()
+    {
+        AnsiConsole.Write(
+            new Panel(
+                $"[bold]Round:[/] {Controller.CurrentRound}\n" +
+                $"[bold]Target score:[/] {Controller.TargetScore}")
+                .Header("Game Information")
+                .BorderColor(Color.Blue));
+
+        AnsiConsole.WriteLine();
+
+        Table scoreTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Player")
+            .AddColumn(new TableColumn("Score").RightAligned());
+
+        foreach (IPlayer player in Controller.Players)
+        {
+            scoreTable.AddRow(
+                Markup.Escape(player.Name),
+                Controller.PlayerScores[player].ToString());
         }
 
-        if(game.Status == GameStatus.Completed)
+        AnsiConsole.Write(scoreTable);
+
+        AnsiConsole.WriteLine();
+
+        string boardText;
+
+        if (Controller.Board.PlayedTiles.Count == 0)
         {
-            Console.WriteLine();
-            Console.WriteLine("=== MATCH OVER ===");
-            Console.WriteLine($"{game.MatchWinner?.Name} won the match");
-            break;
-        }
-
-        Console.WriteLine();
-        Console.Write("Start the next round? (y/n): ");
-        string? nextRoundChoice = Console.ReadLine();
-
-        if(nextRoundChoice?.Trim().ToLower() == "y")
-        {
-            game.StartNewRound();
-
-            Console.WriteLine();
-            Console.WriteLine($"=== ROUND {game.CurrentRound} ===");
-            Console.WriteLine($"First player: {game.CurrentPlayer?.Name}");
+            boardText = "[grey]The board is empty.[/]";
         }
         else
         {
-            Console.WriteLine("Game session ended.");
-            break;
+            boardText = string.Join(
+                "  ",
+                Controller.Board.PlayedTiles.Select(
+                    tile => Markup.Escape($"[{tile.Left}|{tile.Right}]")));
         }
+
+        AnsiConsole.Write(
+            new Panel(boardText)
+                .Header("Domino Board")
+                .BorderColor(Color.Green));
+
+        AnsiConsole.WriteLine();
+
+        AnsiConsole.MarkupLine(
+            $"[grey]Tiles remaining in boneyard: " +
+            $"{Controller.Boneyard.Tiles.Count}[/]");
+
+        AnsiConsole.WriteLine();
+    }
+
+    private static void ShowPlayerHand(List<Tile> hand)
+    {
+        Table handTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("#")
+            .AddColumn("Tile");
+
+        for (int i = 0; i < hand.Count; i++)
+        {
+            Tile tile = hand[i];
+
+            handTable.AddRow(
+                (i + 1).ToString(),
+                Markup.Escape($"[{tile.Left}|{tile.Right}]"));
+        }
+
+        AnsiConsole.Write(
+            new Panel(handTable)
+                .Header("Your Hand")
+                .BorderColor(Color.Yellow));
+    }
+
+    private static void PlayTile(IPlayer player, List<Tile> hand)
+    {
+        if (hand.Count == 0)
+        {
+            return;
+        }
+
+        int tileNumber = AnsiConsole.Prompt(
+            new TextPrompt<int>("Choose a tile number:")
+                .Validate(number =>
+                    number >= 1 && number <= hand.Count
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error(
+                            $"[red]Enter a number from 1 to {hand.Count}.[/]")));
+
+        Tile selectedTile = hand[tileNumber - 1];
+
+        BoardEnd end = BoardEnd.Left;
+
+        if (Controller.Board.PlayedTiles.Count > 0)
+        {
+            string selectedEnd = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Which end of the board?")
+                    .AddChoices("Left", "Right"));
+
+            end = selectedEnd == "Left"
+                ? BoardEnd.Left
+                : BoardEnd.Right;
+        }
+
+        int previousTileCount = hand.Count;
+
+        Controller.PlayTurn(player, selectedTile, end);
+
+        if (hand.Count == previousTileCount)
+        {
+            AnsiConsole.MarkupLine(
+                "[red]Invalid move. Please try again.[/]");
+
+            AnsiConsole.Prompt(
+                new TextPrompt<string>("Press Enter to continue")
+                    .AllowEmpty());
+        }
+    }
+
+    private static void ShowRoundResult()
+    {
+        AnsiConsole.Clear();
+
+        AnsiConsole.Write(
+            new Rule("[bold yellow]Round Result[/]")
+                .RuleStyle("yellow"));
+
+        if (Controller.RoundWinner == null)
+        {
+            AnsiConsole.MarkupLine(
+                "[yellow]The round ended in a tie. No points awarded.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine(
+                $"[green]Round winner: " +
+                $"{Markup.Escape(Controller.RoundWinner.Name)}[/]");
+        }
+
+        AnsiConsole.WriteLine();
+
+        ShowScores();
+    }
+
+    private static void ShowMatchResult()
+    {
+        AnsiConsole.Clear();
+
+        AnsiConsole.Write(
+            new Rule("[bold green]Match Completed[/]")
+                .RuleStyle("green"));
+
+        if (Controller.MatchWinner != null)
+        {
+            AnsiConsole.Write(
+                new FigletText(Controller.MatchWinner.Name)
+                    .Centered()
+                    .Color(Color.Green));
+
+            AnsiConsole.MarkupLine(
+                "[bold green]Congratulations! You won the match![/]");
+        }
+
+        AnsiConsole.WriteLine();
+
+        ShowScores();
+
+        AnsiConsole.Prompt(
+            new TextPrompt<string>("Press Enter to return to the main menu")
+                .AllowEmpty());
+    }
+
+    private static void ShowScores()
+    {
+        Table scoreTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Player")
+            .AddColumn(new TableColumn("Score").RightAligned());
+
+        foreach (IPlayer player in Controller.Players)
+        {
+            scoreTable.AddRow(
+                Markup.Escape(player.Name),
+                Controller.PlayerScores[player].ToString());
+        }
+
+        AnsiConsole.Write(scoreTable);
     }
 }
